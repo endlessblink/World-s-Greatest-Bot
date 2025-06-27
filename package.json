@@ -1,0 +1,22 @@
+{
+  "name": "discoord-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["discord", "bot", "whatsapp", "voice-notifications", "automation"],
+  "author": "",
+  "license": "MIT",
+  "description": "Discord bot that sends WhatsApp notifications when users join voice channels and creates scheduled AI-generated posts",
+  "dependencies": {
+    "axios": "^1.10.0",
+    "discord.js": "^14.20.0",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "node-cron": "^4.1.0",
+    "winston": "^3.17.0"
+  }
+}
