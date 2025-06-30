@@ -36,7 +36,7 @@ const client = new Client({
 
 const services = {
   whatsapp: new WhatsAppService(),
-  llm: new LLMService(),
+  llm: new LLMService(logger),
   scheduledPosts: new ScheduledPosts()
 };
 
@@ -52,6 +52,21 @@ client.once(Events.ClientReady, readyClient => {
 
 client.on(Events.VoiceStateUpdate, (oldState, newState) => {
   voiceHandler.handleVoiceStateUpdate(oldState, newState);
+});
+
+client.on(Events.MessageCreate, async message => {
+  if (message.author.bot) return; // Ignore messages from bots
+
+  if (message.content === '!post') {
+    logger.info(`Manual post trigger received from ${message.author.tag}`);
+    try {
+      await services.scheduledPosts.createScheduledPost();
+      message.reply('Scheduled post triggered successfully!');
+    } catch (error) {
+      logger.error('Error triggering manual post:', error);
+      message.reply('Failed to trigger scheduled post. Check logs for details.');
+    }
+  }
 });
 
 client.on(Events.Error, error => {

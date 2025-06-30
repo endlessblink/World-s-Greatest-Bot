@@ -64,7 +64,15 @@ class ScheduledPosts {
       }
 
       this.logger.info('Generating scheduled post content...');
-      const postContent = await this.llmService.generateScheduledPost(this.serverStats);
+      
+      const masterPrompt = process.env.MASTER_PROMPT;
+      const searchQuery = process.env.WFH_SEARCH_QUERY;
+      
+      const postContent = await this.llmService.generateScheduledPost({
+        stats: this.serverStats,
+        masterPrompt,
+        searchQuery
+      });
 
       await channel.send(postContent);
       

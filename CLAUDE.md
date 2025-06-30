@@ -1,81 +1,156 @@
-# World's Greatest Bot - WFH Discord Bot
+# CLAUDE.md
 
-## Project Status: COMPLETE & SANITIZED FOR GITHUB
-The Discord bot is fully built with advanced WFH content generation capabilities.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What We Built
-A sophisticated Discord bot that:
-- Monitors voice channel joins and sends WhatsApp notifications via Green API
-- Posts @everyone Discord notifications when users join voice channels  
-- Creates AI-generated analytical WFH content using Perplexity web search
-- Supports OpenAI, Anthropic, and Perplexity AI providers
-- Generates research-backed content with real source citations
-- Covers diverse WFH topics (mental health, ergonomics, productivity, etc.)
-- Includes web dashboard for monitoring at http://localhost:3000/dashboard
-- Runs in Docker with persistent volumes for logs and data
+# World's Greatest Bot - Discord WFH Bot
 
-## Key Features Added
-- ✅ Perplexity AI integration for web-search enabled content
-- ✅ Real-time data sourcing with URL citations
-- ✅ Analytical content style (professional, not promotional)
-- ✅ Diverse WFH topic rotation (12 different areas)
-- ✅ Tel Aviv timezone support
-- ✅ Improved error handling and fallback systems
-- ✅ Sanitized for public GitHub repository
+## Project Overview
+A sophisticated Discord bot that monitors voice channels, sends notifications, and generates AI-powered work-from-home content. Built with Node.js, Discord.js, and multiple AI providers.
 
-## Technical Architecture
-- **Main**: index.js (Express server + Discord client)
-- **Handlers**: voiceHandler.js (voice event processing)
-- **Services**: whatsappService.js, llmService.js, scheduledPosts.js
-- **Docker**: Dockerfile + docker-compose.yml with volumes
-- **Persistence**: ./logs/ and ./data/ volumes
-- **Monitoring**: Web dashboard with real-time stats
+## Development Commands
 
-## Project Structure
-```
-worldsgreatestbot/  # (renamed from Discoord-bot)
-├── index.js
-├── handlers/voiceHandler.js
-├── services/
-│   ├── whatsappService.js
-│   ├── llmService.js
-│   └── scheduledPosts.js
-├── logs/ (Docker volume)
-├── data/ (Docker volume)
-├── Dockerfile
-├── docker-compose.yml
-├── .env (configured)
-├── .env.example
-└── README.md
+### Running the Bot
+```bash
+# Development/Local
+npm start
+
+# Docker (Recommended)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Restart services
+docker-compose restart
+
+# Stop services
+docker-compose down
 ```
 
-## Next Steps
-1. Rename folder to "worldsgreatestbot"
-2. Run: docker-compose up -d
-3. Test voice channel joins
-4. Monitor via dashboard
+### Testing
+```bash
+# Test Perplexity AI integration
+node services/langchainTest.js
 
-## Bot Features
-- Voice channel monitoring with cooldown protection
-- WhatsApp group notifications via Green API
-- Discord @everyone notifications
-- Scheduled AI posts with server activity context
-- Rate limiting and error handling
+# No formal test suite currently implemented
+```
+
+### Debugging
+```bash
+# Check container status
+docker stats worldsgreatestbot
+
+# View dashboard
+# http://localhost:3000/dashboard
+
+# Health check
+curl http://localhost:3000/health
+```
+
+## Core Architecture
+
+### Service-Oriented Design
+The bot follows a modular service architecture:
+
+**Main Application (index.js)**
+- Express web server with dashboard and health endpoints
+- Discord client initialization with voice/guild intents
+- Event orchestration and error handling
 - Winston logging system
-- Health checks and monitoring
-- Automatic restart on crashes
 
-## Environment Variables Set
-- DISCORD_TOKEN, DISCORD_CLIENT_ID
-- NOTIFICATION_CHANNEL_ID, SCHEDULED_POST_CHANNEL_ID  
-- GREEN_API_INSTANCE_ID, GREEN_API_TOKEN, WHATSAPP_GROUP_ID
-- OPENAI_API_KEY, ANTHROPIC_API_KEY, LLM_PROVIDER
-- MASTER_PROMPT, POST_SCHEDULE, POST_TIMEZONE
-- LOG_LEVEL, PORT
+**VoiceHandler (handlers/voiceHandler.js)**
+- Multi-tier rate limiting (user cooldowns, burst protection, daily limits)
+- Dual notification system (Discord @everyone + WhatsApp)
+- Configurable message templates with Hebrew support
+- Advanced activity tracking and statistics
 
-## Commands for Management
-- Start: docker-compose up -d
-- Logs: docker-compose logs -f  
-- Restart: docker-compose restart
-- Stop: docker-compose down
-- Stats: docker stats worldsgreatestbot
+**LLMService (services/llmService.js)**
+- Multi-provider AI integration (OpenAI, Anthropic, Perplexity)
+- LangChain integration for advanced prompt engineering
+- Perplexity web search for real-time content with citations
+- WFH-focused content generation across 12 topic areas
+
+**WhatsAppService (services/whatsappService.js)**
+- Green API integration for WhatsApp group messaging
+- Built-in rate limiting and account validation
+- Error handling with fallback mechanisms
+
+**ScheduledPosts (services/scheduledPosts.js)**
+- Cron-based scheduling with timezone support
+- Server activity context for dynamic content
+- Configurable posting schedules
+
+### Data Flow
+1. Voice channel events → VoiceHandler → Dual notifications
+2. Scheduled posts → LLMService → AI content generation → Discord
+3. Web dashboard → Real-time statistics and health monitoring
+
+## Key Configuration
+
+### Environment Variables
+Critical settings in `.env`:
+- `LLM_PROVIDER` - AI provider selection (openai/anthropic/perplexity)
+- `MASTER_PROMPT` - Core prompt template for AI content
+- `POST_SCHEDULE` - Cron expression for scheduled posts
+- `VOICE_COOLDOWN_MINUTES` - Rate limiting configuration
+- Message templates support Hebrew/English localization
+
+### Rate Limiting Architecture
+Multi-layered protection system:
+- Per-user cooldowns (configurable minutes)
+- Burst protection (max notifications per timeframe)
+- Daily limits per user
+- Service-level rate limiting for APIs
+
+### Docker Volumes
+- `./logs/` - Persistent logging with rotation
+- `./data/` - Bot state and statistics storage
+
+## Important Development Notes
+
+### AI Content Generation
+- Uses web search for real-time data and source citations
+- Content style is analytical/professional, not promotional
+- 12 rotating WFH topic areas (mental health, ergonomics, productivity, etc.)
+- Built-in fallback system if primary AI provider fails
+
+### Notification System
+- Discord notifications use @everyone mentions
+- WhatsApp integration requires Green API setup
+- Both systems have independent rate limiting
+- Messages are templated and support localization
+
+### Error Handling
+- Comprehensive Winston logging with multiple levels
+- Service-specific error boundaries
+- Health check endpoints for monitoring
+- Automatic container restart on crashes
+
+### Security Considerations
+- Non-root Docker user (discordbot:nodejs)
+- Environment variable isolation
+- API key rotation support
+- Rate limiting prevents abuse
+
+## Monitoring and Maintenance
+
+### Health Monitoring
+- Web dashboard at `/dashboard` with real-time stats
+- Health check endpoint at `/health`
+- Docker health checks with retry logic
+- Comprehensive logging for debugging
+
+### Common Issues
+- API rate limits → Check service-specific rate limiting configs
+- AI content generation fails → Verify API keys and fallback providers
+- WhatsApp notifications not working → Validate Green API instance status
+- Memory usage → Monitor Docker stats and log rotation
+
+### Performance Optimization
+- LangChain caching for repeated AI queries
+- Discord.js partial structures for memory efficiency
+- Log rotation to prevent disk space issues
+- Configurable cooldowns to balance activity and resource usage
+
+## Git Workflow Notes
+Current uncommitted changes include Perplexity AI integration and Docker configuration updates. The project is production-ready with comprehensive error handling and monitoring capabilities.

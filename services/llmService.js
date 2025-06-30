@@ -1,11 +1,15 @@
 const axios = require('axios');
+const { PromptTemplate } = require("@langchain/core/prompts");
+const { LLMChain } = require("langchain/chains");
+const { ChatPerplexity } = require("@langchain/community/chat_models/perplexity");
 
 class LLMService {
-  constructor() {
+  constructor(logger) {
     this.provider = process.env.LLM_PROVIDER || 'openai';
     this.openaiKey = process.env.OPENAI_API_KEY;
     this.anthropicKey = process.env.ANTHROPIC_API_KEY;
     this.perplexityKey = process.env.PERPLEXITY_API_KEY;
+    this.logger = logger;
   }
 
   isConfigured() {
@@ -51,8 +55,6 @@ class LLMService {
     if (context.voiceChannelStats) {
       prompt += `\n\nVoice channel activity:\n${context.voiceChannelStats}`;
     }
-    
-    prompt += '\n\nPlease generate an engaging Discord post (max 300 characters) that would encourage community participation.';
     
     return prompt;
   }
@@ -156,19 +158,20 @@ class LLMService {
 
   async callPerplexity(prompt) {
     try {
+      const messages = [
+        {
+          role: 'system',
+          content: 'You are a professional content strategist with expertise in creating engaging, data-driven short-form content. Your role is to generate high-quality, concise content that combines real-time research with compelling storytelling.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ];
+
       const response = await axios.post('https://api.perplexity.ai/chat/completions', {
         model: 'llama-3.1-sonar-small-128k-online',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a helpful assistant that provides accurate and up-to-date information.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 300,
+        messages: messages,
         temperature: 0.7
       }, {
         headers: {
@@ -177,6 +180,8 @@ class LLMService {
         },
         timeout: 45000
       });
+
+      this.logger.info('Perplexity API Full Response:', JSON.stringify(response.data, null, 2));
 
       if (response.data && response.data.choices && response.data.choices[0]) {
         return response.data.choices[0].message.content.trim();
@@ -204,124 +209,81 @@ class LLMService {
     }
   }
 
-  async generateScheduledPost(serverStats = {}) {
-    if (this.provider === 'perplexity' && this.perplexityKey) {
-      return await this.generateWFHArticlePost();
+  async generateScheduledPost(options = {}) {
+    const { stats = {}, masterPrompt, searchQuery } = options;
+
+    if (!masterPrompt || !searchQuery) {
+      this.logger.warn('Missing masterPrompt or searchQuery for scheduled post');
+      return 'No content available at the moment. Please check back later.';
     }
-    
-    const masterPrompt = process.env.MASTER_PROMPT || 'Create an engaging post about the Discord community activities.';
-    
-    const context = {
-      date: new Date().toLocaleDateString(),
-      serverActivity: this.formatServerActivity(serverStats),
-      voiceChannelStats: this.formatVoiceStats(serverStats.voiceActivity || {})
-    };
 
-    return await this.generateContent(masterPrompt, context);
-  }
+    const topics = searchQuery.split(',').map(t => t.trim());
+    const selectedTopic = topics[Math.floor(Math.random() * topics.length)];
 
-  async generateWFHArticlePost() {
-    // Diverse WFH topics to rotate through
-    const wfhTopics = [
-      'latest remote work statistics and productivity trends',
-      'work from home mental health and wellbeing research', 
-      'home office ergonomics and setup best practices',
-      'remote team collaboration and communication strategies',
-      'digital nomad lifestyle and location independence trends',
-      'work life balance challenges and solutions for remote workers',
-      'hybrid workplace culture and management approaches',
-      'remote work tools and technology adoption',
-      'virtual meeting fatigue and video call optimization',
-      'remote work career advancement and professional development',
-      'distributed team management and leadership',
-      'remote work cybersecurity and data protection'
-    ];
-    
-    // Select a random topic for variety
-    const selectedTopic = wfhTopics[Math.floor(Math.random() * wfhTopics.length)];
-    
-    try {
-      const response = await axios.post('https://api.perplexity.ai/chat/completions', {
-        model: 'llama-3.1-sonar-small-128k-online',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a workplace analyst who writes insightful, thought-provoking content about remote work. Your writing style is analytical, professional, and engaging. Use minimal emojis (1-2 max), blend data with practical insights, and avoid promotional language.'
-          },
-          {
-            role: 'user',
-            content: `Search for the latest information about: ${selectedTopic}
+    const promptTemplate = PromptTemplate.fromTemplate(`
+      **ROLE:** You are a professional content strategist specializing in data-driven industry analysis. Your expertise includes synthesizing real-time research into actionable insights with academic rigor.
 
-Find compelling and recent insights, research, or trends from this week. Create a Discord post that:
+      **TASK:** Generate a Discord post (max 1200 chars) about {topic} using this structure:
 
-1. Leads with a compelling headline or insight
-2. Combines data/statistics with practical observations
-3. Analyzes what this reveals about remote work evolution
-4. Includes actionable insights or thought-provoking questions
-5. Ends with a meaningful conclusion
-6. Keep it under 1200 characters (save space for source URLs)
-7. Include numbered source citations [1], [2], etc.
-8. Use analytical but accessible tone
-9. Minimal emojis (1-2 maximum)
+      **1. COMPELLING HEADLINE**  
+      - Create a provocative, data-anchored title under 15 words
 
-Reference style: "The 2025 Work Revolution: When Office Walls Crumbled for Good - This isn't just workplace evolution—it's a fundamental reimagining of how and where humans collaborate."
+      **2. INSIGHTFUL ANALYSIS (2-3 paragraphs)**  
+      - Open with a statistically significant finding (2023-2025 data only)  
+      - Integrate 3 specific metrics (e.g., "37% promotion gap," "4.2x visibility penalty")  
+      - Cite sources using [1][2] notation after each data point  
+      - Analyze systemic implications (proximity bias, measurement flaws)  
+      - Maintain professional tone: Zero emojis, no colloquialisms  
 
-Focus on insights that genuinely help people understand and navigate remote work better.`
-          }
-        ],
-        max_tokens: 250,
-        temperature: 0.7
-      }, {
-        headers: {
-          'Authorization': `Bearer ${this.perplexityKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: 45000
-      });
+      **3. ACTIONABLE INSIGHT (1 paragraph)**  
+      - Provide one executable strategy for remote workers  
+      - OR pose a discussion-worthy organizational paradox  
 
-      if (response.data && response.data.choices && response.data.choices[0]) {
-        let content = response.data.choices[0].message.content.trim();
-        
-        // Add source URLs if available
-        if (response.data.citations && response.data.citations.length > 0) {
-          content += '\n\n**Sources:**';
-          response.data.citations.forEach((url, index) => {
-            content += `\n[${index + 1}] ${url}`;
-          });
-        }
-        
-        return content;
-      } else {
-        throw new Error('Invalid response from Perplexity');
-      }
+      **4. CONCLUSION (1 paragraph)**  
+      - Forward-looking perspective with industry evolution forecast  
 
-    } catch (error) {
-      console.error('Perplexity API error:', error);
-      // Fallback to a generic WFH tip if API fails
-      return this.getFallbackWFHPost();
-    }
-  }
+      **5. SOURCES**  
+      - List 3-4 authoritative references (2024-2025 studies only)  
+      - Format: [1] <Full URL> (e.g., [1] <https://www.example.com/study>)
+      - Total character count includes sources  
 
-  getFallbackWFHPost() {
-    const insights = [
-      '**The Productivity Paradox of 2025**\n\nRemote workers log 51 additional productive minutes daily compared to their office counterparts, yet 42% report collaboration as their primary challenge. This data reveals a fascinating contradiction: we\'ve solved individual productivity but struggle with collective output.\n\nThe pattern suggests we\'re optimizing for the wrong metrics. Individual efficiency gains may be masking systemic collaboration inefficiencies that compound over time.',
-      
-      '**The Mental Health Divide in Remote Work**\n\n67% of remote workers report improved work-life balance, but 34% struggle with isolation and loneliness. The psychological infrastructure of distributed teams remains underdeveloped compared to our technological capabilities.\n\nWe\'ve solved the "where" of work but not the "how" of human connection in digital spaces.',
-      
-      '**The Ergonomics Crisis Hidden in Plain Sight**\n\n78% of remote workers experience physical discomfort, yet only 23% have proper ergonomic setups. The long-term health implications of improvised home offices may create a generation of workplace-related injuries.\n\nThis represents a massive shift in occupational health responsibility from employers to individuals.',
-      
-      '**Digital Nomadism: The Geography of Talent**\n\nLocation-independent workers now represent 4.8 million Americans, a 131% increase since 2019. This isn\'t just remote work—it\'s the complete decoupling of productivity from geography.\n\nWe\'re witnessing the birth of a truly global labor market where talent flows to opportunity, not proximity.',
-      
-      '**The Zoom Fatigue Phenomenon**\n\nVirtual meetings cause 13% more cognitive fatigue than in-person interactions due to increased visual processing demands. Our brains aren\'t optimized for the artificial intimacy of video calls.\n\nThis suggests we need new communication protocols designed for digital-first interaction, not digital adaptations of physical meetings.',
-      
-      '**The Career Advancement Paradox**\n\n43% of remote workers feel their career progression has stalled, despite productivity gains. Visibility and opportunity remain tied to physical presence in many organizations.\n\nThis reveals a fundamental disconnect between performance measurement and career development in distributed work environments.',
-      
-      '**The Home Office Real Estate Revolution**\n\nDedicated home office space increases productivity by 27% but only 31% of remote workers have access to one. Housing costs now directly impact work performance in ways previously unimaginable.\n\nThe boundary between personal real estate decisions and professional success has completely dissolved.',
-      
-      '**Virtual Team Dynamics: The New Social Physics**\n\nRemote teams with structured daily check-ins outperform traditional teams by 19% in project completion rates. The absence of physical cues requires more intentional communication frameworks.\n\nWe\'re discovering that human collaboration operates differently in digital spaces—not worse, just fundamentally different.'
-    ];
-    
-    return insights[Math.floor(Math.random() * insights.length)];
+      **RESEARCH PROTOCOL:**  
+      1. Prioritize peer-reviewed journals and established research institutes  
+      2. Cross-verify all statistics with 
+2 sources  
+      3. Reject data older than 2023  
+      4. Flag any conflicting findings in analysis  
+
+      **WRITING STANDARDS:**  
+      - Active voice with concise syntax  
+      - Paragraphs 
+3 sentences. Aim for short, impactful sentences.  
+      - Use bullet points for lists (e.g., for actionable insights or key takeaways) where appropriate.  
+      - Quantitative emphasis (80% data, 20% interpretation)  
+      - Avoid: Anecdotes, self-references, filler phrases  
+
+      **EXAMPLE OUTPUT:**  
+      "Remote Promotion Penalty: The 31% Visibility Gap [1]  
+      New Stanford data reveals remote workers receive 31% fewer promotions despite 22% higher productivity metrics [2][3]. This exposes systemic proximity bias where..."  
+
+      **PLATFORM CONSTRAINTS:**  
+      - Discord formatting (basic markdown allowed: **bolding**, *italics* only; no lists or complex structures)  
+      - Source URLs must be wrapped in angle brackets (e.g., <https://example.com>) to be clickable.  
+      - Strict 1200-character ceiling  
+      - Current date: Monday, June 30, 2025  
+    `);
+
+    const model = new ChatPerplexity({
+      apiKey: this.perplexityKey,
+      model: "llama-3.1-sonar-small-128k-online",
+      temperature: 0.7,
+      maxTokens: 400,
+    });
+
+    const chain = new LLMChain({ llm: model, prompt: promptTemplate });
+
+    const response = await chain.invoke({ topic: selectedTopic });
+    return response.text;
   }
 
   formatServerActivity(stats) {
@@ -351,7 +313,7 @@ Focus on insights that genuinely help people understand and navigate remote work
       return 'No voice channel activity today.';
     }
     
-    return `${voiceActivity.totalJoins} voice channel joins, peak activity at ${voiceActivity.peakHour || 'various times'}`;
+    return `${voiceChannelActivity.totalJoins} voice channel joins, peak activity at ${voiceChannelActivity.peakHour || 'various times'}`;
   }
 }
 

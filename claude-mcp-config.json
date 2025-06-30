@@ -1,0 +1,41 @@
+{
+  "mcpServers": {
+    "puppeteer": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-puppeteer"]
+    },
+    "playwright-mcp": {
+      "command": "npx", 
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "perplexity-ask": {
+      "command": "npx",
+      "args": ["-y", "server-perplexity-ask"],
+      "env": {
+        "PERPLEXITY_API_KEY": "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"
+      }
+    },
+    "contentful": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@ivotoby/contentful-management-mcp-server",
+        "--management-token",
+        "your-contentful-management-token-here",
+        "--host",
+        "http://api.contentful.com"
+      ]
+    },
+    "server-sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@smithery-ai/server-sequential-thinking",
+        "--key",
+        "e897d3d5-f1c9-4f3e-83eb-05a0acf23558"
+      ]
+    }
+  }
+}
