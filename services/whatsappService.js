@@ -33,12 +33,16 @@ class WhatsAppService {
         message: message
       };
 
+      console.log('WhatsApp API Request:', { url, payload });
+      
       const response = await axios.post(url, payload, {
         headers: {
           'Content-Type': 'application/json'
         },
         timeout: 10000
       });
+      
+      console.log('WhatsApp API Response:', response.data);
 
       this.updateRateLimit();
 

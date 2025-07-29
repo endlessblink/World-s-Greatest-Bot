@@ -138,11 +138,12 @@ class VoiceHandler {
         .replace('{displayName}', member.displayName)
         .replace('{channelName}', channel.name);
       
-      await this.services.whatsapp.sendGroupMessage(message);
-      this.logger.info(`Sent WhatsApp notification for ${member.user.tag}`);
+      const result = await this.services.whatsapp.sendGroupMessage(message);
+      this.logger.info(`WhatsApp API response for ${member.user.tag}:`, result);
 
     } catch (error) {
-      this.logger.error('Error sending WhatsApp notification:', error);
+      this.logger.error('Error sending WhatsApp notification:', error.message || error);
+      this.logger.error('Full error details:', error.response?.data || error);
     }
   }
   
