@@ -68,15 +68,29 @@ class ScheduledPosts {
       const masterPrompt = process.env.MASTER_PROMPT;
       const searchQuery = process.env.WFH_SEARCH_QUERY;
       
-      const postContent = await this.llmService.generateScheduledPost({
+      let postContent = await this.llmService.generateScheduledPost({
         stats: this.serverStats,
         masterPrompt,
         searchQuery
       });
 
-      await channel.send(postContent);
+      // Generate contextual discussion question
+      try {
+        const discussionQuestion = await this.llmService.generateDiscussionQuestion(postContent);
+        // Add question to the same message with proper spacing
+        postContent = postContent + '\n\n' + discussionQuestion;
+      } catch (error) {
+        this.logger.error('Error generating discussion question:', error);
+      }
+
+      // Ensure combined content doesn't exceed Discord's 2000 character limit
+      const finalContent = postContent.length > 2000 
+        ? postContent.substring(0, 1950) + '...' 
+        : postContent;
+
+      await channel.send(finalContent);
       
-      this.logger.info('Successfully posted scheduled content');
+      this.logger.info('Successfully posted scheduled content with discussion');
       
       this.resetDailyStats();
 

@@ -1,0 +1,65 @@
+# Development and config files
+.env
+.env.*
+*.log
+logs/
+combined.log
+error.log
+
+# Docker files
+Dockerfile
+docker-compose.yml
+
+# Documentation and session files
+*.md
+SESSION-DROPOFF-*.md
+CLAUDE-SESSION-DROPOFF.md
+PROJECT_SNAPSHOT.md
+CURRENT_STATE_BACKUP.json
+memories/
+
+# Claude Code and MCP configuration
+claude-mcp-config.json
+mcp.json
+.claude/
+
+# Test files
+services/langchainTest.js
+test/
+tests/
+*.test.js
+*.spec.js
+
+# Git and development
+.git/
+.gitignore
+.eslintrc*
+.prettierrc*
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data and runtime
+data/
+pids/
+*.pid
+
+# Build and coverage
+coverage/
+.nyc_output/
+dist/
+build/
+
+# Keep only production code
+!index.js
+!handlers/
+!services/llmService.js
+!services/scheduledPosts.js
+!services/whatsappService.js

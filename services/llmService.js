@@ -223,7 +223,7 @@ class LLMService {
     const promptTemplate = PromptTemplate.fromTemplate(`
       **ROLE:** You are a professional content strategist specializing in data-driven industry analysis. Your expertise includes synthesizing real-time research into actionable insights with academic rigor.
 
-      **TASK:** Generate a Discord post (max 1200 chars) about {topic} using this structure:
+      **TASK:** Generate a Discord post (STRICT MAXIMUM 1200 characters) about {topic} using this structure:
 
       **1. COMPELLING HEADLINE**  
       - Create a provocative, data-anchored title under 15 words
@@ -269,7 +269,8 @@ class LLMService {
       **PLATFORM CONSTRAINTS:**  
       - Discord formatting (basic markdown allowed: **bolding**, *italics* only; no lists or complex structures)  
       - Source URLs must be wrapped in angle brackets (e.g., <https://example.com>) to be clickable.  
-      - Strict 1200-character ceiling  
+      - CRITICAL: Total character count MUST NOT exceed 1200 characters (including sources)
+      - If approaching limit, prioritize core message over extensive sourcing
       - Current date: Monday, June 30, 2025  
     `);
 
@@ -283,7 +284,241 @@ class LLMService {
     const chain = new LLMChain({ llm: model, prompt: promptTemplate });
 
     const response = await chain.invoke({ topic: selectedTopic });
-    return response.text;
+    let content = response.text;
+
+    // If content is still too long, try AI shortening first, then fallback to truncation
+    if (content.length > 1200) {
+      this.logger.warn(`Content too long (${content.length} chars), attempting AI shortening`);
+      content = await this.shortenWithOpenAI(content);
+    }
+
+    return content;
+  }
+
+  async shortenWithOpenAI(longContent) {
+    try {
+      this.logger.info(`Using OpenAI to shorten content from ${longContent.length} characters`);
+
+      const shortenPrompt = `Shorten this work-from-home Discord post to EXACTLY 1200 characters or less while preserving:
+
+1. The bold headline (keep intact)
+2. Key statistics and data points
+3. Main insights and conclusions  
+4. ALL source citations with clickable URLs in format [1] <https://example.com>
+
+CRITICAL REQUIREMENTS:
+- Maximum 1200 characters total (including sources)
+- Preserve professional tone
+- Keep all source URLs clickable with < > brackets
+- Maintain markdown formatting (**bold**)
+- No additional text, explanations, or meta-comments
+
+Original content:
+${longContent}
+
+Return ONLY the shortened post:`;
+
+      const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert content editor specializing in preserving key information while meeting strict character limits. Always preserve source citations and URLs.'
+          },
+          {
+            role: 'user',
+            content: shortenPrompt
+          }
+        ],
+        max_tokens: 500,
+        temperature: 0.3
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.openaiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      if (response.data?.choices?.[0]?.message?.content) {
+        const shortenedContent = response.data.choices[0].message.content.trim();
+        
+        if (shortenedContent.length <= 1200) {
+          this.logger.info(`Content successfully shortened to ${shortenedContent.length} characters using OpenAI`);
+          return shortenedContent;
+        } else {
+          this.logger.warn(`OpenAI shortened content still too long (${shortenedContent.length} chars), using fallback`);
+          return this.intelligentTruncate(longContent);
+        }
+      } else {
+        throw new Error('Invalid response from OpenAI shortening service');
+      }
+
+    } catch (error) {
+      this.logger.error('Error shortening content with OpenAI:', error);
+      this.logger.info('Falling back to intelligent truncation');
+      return this.intelligentTruncate(longContent);
+    }
+  }
+
+  async shortenContent(longContent) {
+    try {
+      this.logger.info(`Content too long (${longContent.length} chars), attempting to shorten...`);
+      
+      const shortenPrompt = `
+        Shorten this Discord post to exactly 1200 characters or less while preserving:
+        1. The main headline and key statistics
+        2. One actionable insight
+        3. At least 2 source citations
+        4. Professional tone
+        
+        Original content:
+        ${longContent}
+        
+        Return only the shortened version with no extra text or explanations.
+      `;
+
+      let shortenedContent;
+      
+      if (this.provider === 'perplexity') {
+        shortenedContent = await this.callPerplexity(shortenPrompt);
+      } else if (this.provider === 'openai') {
+        shortenedContent = await this.callOpenAI(shortenPrompt);
+      } else if (this.provider === 'anthropic') {
+        shortenedContent = await this.callAnthropic(shortenPrompt);
+      }
+
+      // Final fallback: intelligent truncation if AI shortening fails
+      if (!shortenedContent || shortenedContent.length > 1200) {
+        return this.intelligentTruncate(longContent);
+      }
+
+      this.logger.info(`Content successfully shortened to ${shortenedContent.length} characters`);
+      return shortenedContent;
+
+    } catch (error) {
+      this.logger.error('Error shortening content:', error);
+      return this.intelligentTruncate(longContent);
+    }
+  }
+
+  intelligentTruncate(content) {
+    if (content.length <= 1200) return content;
+
+    // First, try to extract and preserve sources section
+    const sourcesMatch = content.match(/### Sources[\s\S]*$/i) || 
+                        content.match(/Sources:?[\s\S]*$/i) ||
+                        content.match(/\[1\][\s\S]*$/);
+    
+    let sourcesSection = '';
+    let mainContent = content;
+    
+    if (sourcesMatch) {
+      sourcesSection = sourcesMatch[0];
+      mainContent = content.substring(0, sourcesMatch.index);
+    }
+
+    // Calculate available space for main content
+    const maxMainLength = 1150 - sourcesSection.length;
+    
+    if (mainContent.length > maxMainLength) {
+      // Find the last complete sentence before the limit
+      let lastSentenceEnd = mainContent.lastIndexOf('.', maxMainLength);
+      
+      if (lastSentenceEnd === -1) {
+        lastSentenceEnd = mainContent.lastIndexOf('!', maxMainLength);
+      }
+      if (lastSentenceEnd === -1) {
+        lastSentenceEnd = mainContent.lastIndexOf('?', maxMainLength);
+      }
+      
+      // If no sentence ending found, look for last space
+      if (lastSentenceEnd === -1) {
+        lastSentenceEnd = mainContent.lastIndexOf(' ', maxMainLength);
+      }
+      
+      // Fallback to hard truncation
+      if (lastSentenceEnd === -1) {
+        lastSentenceEnd = maxMainLength;
+      }
+
+      mainContent = mainContent.substring(0, lastSentenceEnd + 1);
+    }
+
+    // Combine main content with sources
+    let result = mainContent;
+    if (sourcesSection && result.length + sourcesSection.length + 10 < 1200) {
+      result += '\n\n' + sourcesSection;
+    } else if (sourcesSection) {
+      // Try to include at least one source
+      const firstSource = sourcesSection.match(/\[1\][^[]*?<[^>]+>/);
+      if (firstSource && result.length + firstSource[0].length + 10 < 1200) {
+        result += '\n\n' + firstSource[0];
+      }
+    }
+    
+    return result;
+  }
+
+  async generateDiscussionQuestion(postContent) {
+    try {
+      this.logger.info('Generating contextual discussion question');
+
+      const questionPrompt = `Analyze this work-from-home Discord post and generate ONE engaging discussion question that:
+
+1. Relates directly to the key topic/statistics mentioned
+2. Encourages community members to share personal experiences
+3. Is thought-provoking but not controversial
+4. Can be answered by both experienced and new remote workers
+5. Starts conversation, not debate
+
+Post content to analyze:
+${postContent}
+
+Generate exactly ONE question (max 150 characters) that would spark healthy discussion. Return only the question with no additional text:`;
+
+      const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a community engagement specialist who creates discussion questions that foster inclusive conversation and knowledge sharing among remote workers.'
+          },
+          {
+            role: 'user',
+            content: questionPrompt
+          }
+        ],
+        max_tokens: 100,
+        temperature: 0.7
+      }, {
+        headers: {
+          'Authorization': `Bearer ${this.openaiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      if (response.data?.choices?.[0]?.message?.content) {
+        const question = response.data.choices[0].message.content.trim();
+        this.logger.info(`Generated discussion question: ${question}`);
+        return `💬 **Discussion:** ${question}`;
+      } else {
+        throw new Error('Invalid response from OpenAI question generation');
+      }
+
+    } catch (error) {
+      this.logger.error('Error generating discussion question:', error);
+      // Fallback to generic questions based on common WFH topics
+      const fallbackQuestions = [
+        "💬 **Discussion:** What's your biggest remote work challenge this week?",
+        "💬 **Discussion:** How do you maintain work-life balance when working from home?",
+        "💬 **Discussion:** What's your most effective productivity tip for remote work?",
+        "💬 **Discussion:** How has remote work changed your career perspective?",
+        "💬 **Discussion:** What tools or setup improvements have made the biggest difference for you?"
+      ];
+      return fallbackQuestions[Math.floor(Math.random() * fallbackQuestions.length)];
+    }
   }
 
   formatServerActivity(stats) {

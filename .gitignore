@@ -86,8 +86,14 @@ jspm_packages/
 # Docker persistent volumes
 data/
 
-# Claude Code local settings
+# Session and memory files
+sessions/
+memories/
+
+# Claude Code and MCP configuration
 .claude/
+claude-mcp-config.json
+mcp.json
 
 # OS generated files
 .DS_Store
