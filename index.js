@@ -8,6 +8,7 @@ const VoiceHandler = require('./handlers/voiceHandler');
 const WhatsAppService = require('./services/whatsappService');
 const LLMService = require('./services/llmService');
 const ScheduledPosts = require('./services/scheduledPosts');
+const AnalyticsService = require('./services/analyticsService');
 
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
@@ -37,7 +38,8 @@ const client = new Client({
 const services = {
   whatsapp: new WhatsAppService(),
   llm: new LLMService(logger),
-  scheduledPosts: new ScheduledPosts()
+  scheduledPosts: new ScheduledPosts(),
+  analytics: new AnalyticsService()
 };
 
 const voiceHandler = new VoiceHandler(client, services, logger);
@@ -60,11 +62,59 @@ client.on(Events.MessageCreate, async message => {
   if (message.content === '!post') {
     logger.info(`Manual post trigger received from ${message.author.tag}`);
     try {
-      await services.scheduledPosts.createScheduledPost();
+      await services.scheduledPosts.createScheduledPost(true); // true = manual trigger
       message.reply('Scheduled post triggered successfully!');
     } catch (error) {
       logger.error('Error triggering manual post:', error);
       message.reply('Failed to trigger scheduled post. Check logs for details.');
+    }
+  }
+
+  // Analytics command
+  if (message.content === '!analyze') {
+    logger.info(`Analytics request from ${message.author.tag}`);
+    try {
+      const loadingMsg = await message.reply('🔍 Deep-analyzing server activity... This will take 30-60 seconds.');
+      
+      const analysis = await services.analytics.analyzeServer(client, message.guild.id);
+      const report = await services.analytics.generateReport(analysis);
+      
+      // Split report if too long
+      if (report.length > 2000) {
+        const chunks = report.match(/.{1,1900}/gs);
+        for (let i = 0; i < chunks.length; i++) {
+          await message.channel.send(`**Part ${i + 1}/${chunks.length}**\n${chunks[i]}`);
+        }
+      } else {
+        await message.channel.send(report);
+      }
+      
+      await loadingMsg.delete();
+    } catch (error) {
+      logger.error('Error running analytics:', error);
+      message.reply('Failed to analyze server. Make sure the bot has permission to read message history.');
+    }
+  }
+
+  // Quick analytics for just hourly patterns
+  if (message.content === '!heatmap') {
+    logger.info(`Heatmap request from ${message.author.tag}`);
+    try {
+      const loadingMsg = await message.reply('📊 Generating activity heatmap...');
+      
+      const analysis = await services.analytics.analyzeServer(client, message.guild.id);
+      const hourlyData = analysis.activityPatterns.hourlyActivity;
+      
+      const heatmap = hourlyData.map((count, hour) => {
+        const intensity = count === 0 ? '⬛' : count < 2 ? '🟫' : count < 5 ? '🟨' : count < 10 ? '🟧' : '🟥';
+        return `${hour.toString().padStart(2, '0')}h ${intensity} ${count}`;
+      }).join('\n');
+      
+      await message.channel.send(`**📊 24-Hour Activity Heatmap**\n\`\`\`\n${heatmap}\n\`\`\`\n${analysis.activityPatterns.weeklyMessages} total messages this week`);
+      await loadingMsg.delete();
+    } catch (error) {
+      logger.error('Error generating heatmap:', error);
+      message.reply('Failed to generate heatmap.');
     }
   }
 });
@@ -202,8 +252,9 @@ app.get('/dashboard', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  logger.info(`Web server running on port ${PORT}`);
+const HOST = '0.0.0.0'; // Bind to all interfaces for Docker health checks
+app.listen(PORT, HOST, () => {
+  logger.info(`Web server running on ${HOST}:${PORT}`);
 });
 
 client.login(process.env.DISCORD_TOKEN);

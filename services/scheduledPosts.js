@@ -20,6 +20,13 @@ class ScheduledPosts {
     this.llmService = llmService;
     this.logger = logger;
 
+    // Check if scheduled posts are configured
+    if (!process.env.SCHEDULED_POST_CHANNEL_ID) {
+      this.logger.info('Scheduled posts disabled - no SCHEDULED_POST_CHANNEL_ID configured');
+      this.startStatsCollection();
+      return;
+    }
+
     const schedule = process.env.POST_SCHEDULE || '0 9 * * *';
     const timezone = process.env.POST_TIMEZONE || 'America/New_York';
 
@@ -44,7 +51,7 @@ class ScheduledPosts {
     this.logger.info('Scheduled posts service started successfully');
   }
 
-  async createScheduledPost() {
+  async createScheduledPost(isManualTrigger = false) {
     try {
       const channelId = process.env.SCHEDULED_POST_CHANNEL_ID;
       if (!channelId) {
@@ -70,27 +77,68 @@ class ScheduledPosts {
       
       let postContent = await this.llmService.generateScheduledPost({
         stats: this.serverStats,
-        masterPrompt,
-        searchQuery
+        masterPrompt: isManualTrigger ? null : masterPrompt, // Use null for manual to force research format
+        searchQuery,
+        isManualTrigger
       });
 
       // Generate contextual discussion question
+      let discussionQuestion = '';
       try {
-        const discussionQuestion = await this.llmService.generateDiscussionQuestion(postContent);
-        // Add question to the same message with proper spacing
-        postContent = postContent + '\n\n' + discussionQuestion;
+        discussionQuestion = await this.llmService.generateDiscussionQuestion(postContent);
       } catch (error) {
         this.logger.error('Error generating discussion question:', error);
       }
 
-      // Ensure combined content doesn't exceed Discord's 2000 character limit
-      const finalContent = postContent.length > 2000 
-        ? postContent.substring(0, 1950) + '...' 
+      // Calculate space for discussion question (if any)
+      const discussionLength = discussionQuestion ? discussionQuestion.length + 4 : 0; // +4 for \n\n prefix
+      const maxContentLength = 2000 - discussionLength;
+
+      // Ensure content fits with discussion question
+      if (postContent.length > maxContentLength) {
+        this.logger.warn(`Post content too long with discussion question (${postContent.length} + ${discussionLength} chars), intelligently truncating`);
+        
+        // Try to preserve sources section if present
+        const sourcesMatch = postContent.match(/(\[1\][\s\S]*$)/);
+        let mainContent = postContent;
+        let sourcesSection = '';
+        
+        if (sourcesMatch) {
+          sourcesSection = sourcesMatch[0];
+          mainContent = postContent.substring(0, sourcesMatch.index).trim();
+        }
+        
+        // Calculate space for main content
+        const sourcesLength = sourcesSection.length;
+        const availableForMain = maxContentLength - sourcesLength - 10; // 10 chars buffer
+        
+        if (mainContent.length > availableForMain) {
+          // Find a good truncation point
+          let truncateAt = mainContent.lastIndexOf('. ', availableForMain);
+          if (truncateAt === -1) truncateAt = mainContent.lastIndexOf('! ', availableForMain);
+          if (truncateAt === -1) truncateAt = mainContent.lastIndexOf('? ', availableForMain);
+          if (truncateAt === -1) truncateAt = mainContent.lastIndexOf(' ', availableForMain - 20);
+          if (truncateAt === -1) truncateAt = availableForMain - 20;
+          
+          mainContent = mainContent.substring(0, truncateAt).trim();
+          if (!mainContent.match(/[.!?]$/)) mainContent += '...';
+        }
+        
+        // Reconstruct with sources
+        postContent = sourcesSection ? mainContent + '\n\n' + sourcesSection : mainContent;
+      }
+
+      // Combine content with discussion question
+      const finalContent = discussionQuestion 
+        ? postContent + '\n\n' + discussionQuestion
         : postContent;
 
-      await channel.send(finalContent);
+      const sentMessage = await channel.send(finalContent);
       
       this.logger.info('Successfully posted scheduled content with discussion');
+      
+      // Track engagement for analytics
+      this.trackPostEngagement(sentMessage);
       
       this.resetDailyStats();
 
@@ -206,6 +254,27 @@ class ScheduledPosts {
       this.logger.info(`Stopped schedule: ${name}`);
     }
     this.tasks.clear();
+  }
+
+  trackPostEngagement(message) {
+    // Track reactions after 5 minutes
+    setTimeout(async () => {
+      try {
+        const updatedMessage = await message.fetch();
+        const reactions = updatedMessage.reactions.cache;
+        const reactionCount = reactions.reduce((acc, reaction) => acc + reaction.count, 0);
+        
+        this.logger.info(`Post engagement after 5 min: ${reactionCount} reactions`);
+        
+        // Track thread replies if any
+        if (updatedMessage.hasThread) {
+          const thread = await updatedMessage.thread.fetch();
+          this.logger.info(`Post has ${thread.messageCount} replies in thread`);
+        }
+      } catch (error) {
+        this.logger.error('Error tracking post engagement:', error);
+      }
+    }, 5 * 60 * 1000); // 5 minutes
   }
 }
 

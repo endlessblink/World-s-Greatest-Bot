@@ -220,63 +220,66 @@ class LLMService {
     const topics = searchQuery.split(',').map(t => t.trim());
     const selectedTopic = topics[Math.floor(Math.random() * topics.length)];
 
-    const promptTemplate = PromptTemplate.fromTemplate(`
-      **ROLE:** You are a professional content strategist specializing in data-driven industry analysis. Your expertise includes synthesizing real-time research into actionable insights with academic rigor.
+    // Check if master prompt is for casual conversation style
+    const isConversationalStyle = masterPrompt && masterPrompt.toLowerCase().includes('conversation starter');
+    
+    let promptContent;
+    
+    if (isConversationalStyle) {
+      // Use the fun, casual master prompt for engagement
+      promptContent = `
+        ${masterPrompt}
+        
+        Context: Draw inspiration from ${selectedTopic} but keep it casual and relatable.
+        Make it about the everyday struggles/wins of remote work.
+        
+        IMPORTANT: Maximum 200 characters as specified. Super casual, slightly funny.
+      `;
+    } else {
+      // Fallback to engaging research-based posts
+      promptContent = `
+        You're chatting in a Discord server full of remote workers. Create a post about ${selectedTopic} that gets people talking.
+        
+        **Structure:**
+        1. **Hook** (1 line): Start with "Okay but why does..." or "Hot take:" or "Anyone else notice..." - something that makes people go "EXACTLY!"
+        
+        2. **The Tea** (2-3 short paragraphs): 
+           - Drop 2-3 surprising stats from 2024-2025 studies
+           - Explain what it means in plain English
+           - Use phrases like "turns out", "plot twist", "here's the kicker"
+           - Include [1][2] sources but keep the flow natural
+        
+        3. **Make it Hit Home** (1 paragraph):
+           - "This means you're probably..." 
+           - Call out a specific scenario they've experienced
+        
+        4. **Drop a Solution** (1-2 lines):
+           - One thing they can try literally right now
+           - Make it stupidly simple
+        
+        5. **Sources**: 2-3 links as [1] <url>
+        
+        **Vibe Check:**
+        - Write like you're on a coffee break ranting to a coworker
+        - Use "you" constantly - make it personal
+        - Short sentences. Like really short.
+        - Slightly spicy takes welcome
+        - End with something that makes lurkers go "okay FINE I'll respond"
+        
+        Max 1200 chars including sources. Keep it punchy.
+      `;
+    }
+    
+    const promptTemplate = PromptTemplate.fromTemplate(promptContent + `
 
-      **TASK:** Generate a Discord post (STRICT MAXIMUM 1200 characters) about {topic} using this structure:
-
-      **1. COMPELLING HEADLINE**  
-      - Create a provocative, data-anchored title under 15 words
-
-      **2. INSIGHTFUL ANALYSIS (2-3 paragraphs)**  
-      - Open with a statistically significant finding (2023-2025 data only)  
-      - Integrate 3 specific metrics (e.g., "37% promotion gap," "4.2x visibility penalty")  
-      - Cite sources using [1][2] notation after each data point  
-      - Analyze systemic implications (proximity bias, measurement flaws)  
-      - Maintain professional tone: Zero emojis, no colloquialisms  
-
-      **3. ACTIONABLE INSIGHT (1 paragraph)**  
-      - Provide one executable strategy for remote workers  
-      - OR pose a discussion-worthy organizational paradox  
-
-      **4. CONCLUSION (1 paragraph)**  
-      - Forward-looking perspective with industry evolution forecast  
-
-      **5. SOURCES**  
-      - List 3-4 authoritative references (2024-2025 studies only)  
-      - Format: [1] <Full URL> (e.g., [1] <https://www.example.com/study>)
-      - Total character count includes sources  
-
-      **RESEARCH PROTOCOL:**  
-      1. Prioritize peer-reviewed journals and established research institutes  
-      2. Cross-verify all statistics with 
-2 sources  
-      3. Reject data older than 2023  
-      4. Flag any conflicting findings in analysis  
-
-      **WRITING STANDARDS:**  
-      - Active voice with concise syntax  
-      - Paragraphs 
-3 sentences. Aim for short, impactful sentences.  
-      - Use bullet points for lists (e.g., for actionable insights or key takeaways) where appropriate.  
-      - Quantitative emphasis (80% data, 20% interpretation)  
-      - Avoid: Anecdotes, self-references, filler phrases  
-
-      **EXAMPLE OUTPUT:**  
-      "Remote Promotion Penalty: The 31% Visibility Gap [1]  
-      New Stanford data reveals remote workers receive 31% fewer promotions despite 22% higher productivity metrics [2][3]. This exposes systemic proximity bias where..."  
-
-      **PLATFORM CONSTRAINTS:**  
-      - Discord formatting (basic markdown allowed: **bolding**, *italics* only; no lists or complex structures)  
-      - Source URLs must be wrapped in angle brackets (e.g., <https://example.com>) to be clickable.  
-      - CRITICAL: Total character count MUST NOT exceed 1200 characters (including sources)
-      - If approaching limit, prioritize core message over extensive sourcing
-      - Current date: Monday, June 30, 2025  
+      
+      Topic: {topic}
+      Current date: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}  
     `);
 
     const model = new ChatPerplexity({
       apiKey: this.perplexityKey,
-      model: "llama-3.1-sonar-small-128k-online",
+      model: "sonar",
       temperature: 0.7,
       maxTokens: 400,
     });
@@ -466,16 +469,16 @@ Return ONLY the shortened post:`;
 
       const questionPrompt = `Analyze this work-from-home Discord post and generate ONE engaging discussion question that:
 
-1. Relates directly to the key topic/statistics mentioned
-2. Encourages community members to share personal experiences
-3. Is thought-provoking but not controversial
-4. Can be answered by both experienced and new remote workers
-5. Starts conversation, not debate
+1. Is slightly spicy/controversial (but still friendly)
+2. Super specific and relatable to remote workers
+3. Makes lurkers think "oh I HAVE to answer this"
+4. Uses formats like: "Hot take:", "Be honest:", "Unpopular opinion:", "Wrong answers only:"
+5. Challenges common assumptions or calls out relatable habits
 
 Post content to analyze:
 ${postContent}
 
-Generate exactly ONE question (max 150 characters) that would spark healthy discussion. Return only the question with no additional text:`;
+Generate exactly ONE question (max 100 characters) that would spark lively discussion. Make it spicy enough to get responses. Return ONLY the question text, no prefix:`;
 
       const response = await axios.post('https://api.openai.com/v1/chat/completions', {
         model: 'gpt-4o-mini',
@@ -502,7 +505,7 @@ Generate exactly ONE question (max 150 characters) that would spark healthy disc
       if (response.data?.choices?.[0]?.message?.content) {
         const question = response.data.choices[0].message.content.trim();
         this.logger.info(`Generated discussion question: ${question}`);
-        return `💬 **Discussion:** ${question}`;
+        return `💬 Discussion: ${question}`;
       } else {
         throw new Error('Invalid response from OpenAI question generation');
       }
